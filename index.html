@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sit</title>
+<style>
+:root{--bg:#1f2a2c;--ink:#e8e2d4;--dim:#8fa0a0;--ring:#33474a;--accent:#d9b26a;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#eef0ea;--ink:#223033;--dim:#66787a;--ring:#d3dad6;--accent:#a67a2a}}
+:root[data-theme="dark"]{--bg:#1f2a2c;--ink:#e8e2d4;--dim:#8fa0a0;--ring:#33474a;--accent:#d9b26a}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:Georgia,"Iowan Old Style",serif;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;padding:20px;-webkit-tap-highlight-color:transparent}
+.dial{position:relative;width:min(78vw,320px);aspect-ratio:1}
+.dial svg{width:100%;height:100%;transform:rotate(-90deg)}
+.dial circle{fill:none;stroke-width:6}
+.track{stroke:var(--ring)}
+.prog{stroke:var(--accent);stroke-linecap:round;transition:stroke-dashoffset .4s linear}
+.time{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.time b{font-size:clamp(44px,14vw,64px);font-weight:400;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.time span{color:var(--dim);font-size:15px;margin-top:4px;min-height:1.2em}
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+button{font:inherit;color:var(--ink);background:none;border:1px solid var(--ring);border-radius:999px;padding:10px 18px;min-height:44px;cursor:pointer}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.on{border-color:var(--accent);color:var(--accent)}
+.step{width:44px;padding:0;font-size:22px}
+.go{background:var(--accent);color:var(--bg);border-color:var(--accent);font-size:19px;padding:12px 44px}
+.quiet{border:none;color:var(--dim);font-size:14px;min-height:36px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="dial">
+  <svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="46"/><circle class="prog" id="prog" cx="50" cy="50" r="46"/></svg>
+  <div class="time"><b id="t">10:00</b><span id="msg">minutes of sitting</span></div>
+</div>
+<div id="setup">
+  <div class="row" id="presets"></div>
+  <div class="row" style="margin-top:12px;align-items:center">
+    <button class="step" id="minus" aria-label="One minute less">−</button>
+    <button class="step" id="plus" aria-label="One minute more">+</button>
+  </div>
+</div>
+<div class="row">
+  <button class="go" id="go">Begin</button>
+  <button id="pause" hidden>Pause</button>
+</div>
+<button class="quiet" id="test">Hear the gong</button>
+<script>
+var CIRC=2*Math.PI*46,prog=document.getElementById('prog');
+prog.style.strokeDasharray=CIRC;
+var t=document.getElementById('t'),msg=document.getElementById('msg'),go=document.getElementById('go'),pauseBtn=document.getElementById('pause'),setup=document.getElementById('setup');
+var mins=10,total=0,remaining=0,endAt=0,state='idle',tick=null,ctx=null,wake=null;
+try{var s=parseInt(localStorage.getItem('sit-mins'),10);if(s>0&&s<=180)mins=s}catch(e){}
+
+function fmt(sec){sec=Math.max(0,Math.ceil(sec));var m=Math.floor(sec/60),r=sec%60;return m+':'+(r<10?'0':'')+r}
+function draw(frac){prog.style.strokeDashoffset=CIRC*(1-frac)}
+function showIdle(){t.textContent=fmt(mins*60);msg.textContent='minutes of sitting';draw(1);
+  [].forEach.call(document.querySelectorAll('#presets button'),function(b){b.classList.toggle('on',+b.dataset.m===mins)})}
+function setMins(m){mins=Math.min(180,Math.max(1,m));try{localStorage.setItem('sit-mins',mins)}catch(e){}showIdle()}
+
+[5,10,15,20,30].forEach(function(m){var b=document.createElement('button');b.textContent=m;b.dataset.m=m;b.onclick=function(){if(state==='idle')setMins(m)};document.getElementById('presets').appendChild(b)});
+document.getElementById('minus').onclick=function(){if(state==='idle')setMins(mins-1)};
+document.getElementById('plus').onclick=function(){if(state==='idle')setMins(mins+1)};
+
+function audio(){if(!ctx){var C=window.AudioContext||window.webkitAudioContext;ctx=new C()}if(ctx.state==='suspended')ctx.resume();return ctx}
+var VOICES={
+  low:{name:'Deep bowl',base:147,r:[1,2.68,5.1,8],g:[1,.7,.35,.15],d:[15,9.6,5.5,3.4],beat:1.1}
+};
+var voice='low';
+function gong(){
+  var c=audio(),V=VOICES[voice],now=c.currentTime+.05,master=c.createGain();
+  master.gain.value=.35;master.connect(c.destination);
+  V.r.forEach(function(r,i){
+    [0,1].forEach(function(k){
+      var o=c.createOscillator(),g=c.createGain();
+      o.type='sine';o.frequency.value=V.base*r+(k?V.beat*(1+i*.4):0);
+      g.gain.setValueAtTime(0,now);g.gain.linearRampToValueAtTime(V.g[i]*.45,now+.015);
+      g.gain.exponentialRampToValueAtTime(.0001,now+V.d[i]);
+      o.connect(g);g.connect(master);o.start(now);o.stop(now+V.d[i]+.1)});
+  });
+  var len=Math.floor(c.sampleRate*.06),buf=c.createBuffer(1,len,c.sampleRate),dd=buf.getChannelData(0);
+  for(var j=0;j<len;j++)dd[j]=(Math.random()*2-1)*Math.pow(1-j/len,3);
+  var n=c.createBufferSource(),f=c.createBiquadFilter(),ng=c.createGain();
+  n.buffer=buf;f.type='bandpass';f.frequency.value=V.base*3.5;f.Q.value=.6;ng.gain.value=.063;
+  n.connect(f);f.connect(ng);ng.connect(master);n.start(now);
+}
+
+
+async function lock(){try{if(navigator.wakeLock)wake=await navigator.wakeLock.request('screen')}catch(e){}}
+function unlock(){try{if(wake){wake.release();wake=null}}catch(e){}}
+
+function loop(){
+  remaining=(endAt-Date.now())/1000;
+  if(remaining<=0){finish();return}
+  t.textContent=fmt(remaining);draw(remaining/total);
+}
+function begin(){
+  total=mins*60;remaining=total;endAt=Date.now()+total*1000;state='running';
+  gong();lock();setup.hidden=true;go.textContent='End';pauseBtn.hidden=false;pauseBtn.textContent='Pause';msg.textContent='sitting';
+  clearInterval(tick);tick=setInterval(loop,250);loop();
+}
+function finish(){clearInterval(tick);gong();unlock();state='idle';setup.hidden=false;go.textContent='Begin';pauseBtn.hidden=true;showIdle();msg.textContent='finished'}
+function stop(){clearInterval(tick);unlock();state='idle';setup.hidden=false;go.textContent='Begin';pauseBtn.hidden=true;showIdle()}
+function pause(){
+  if(state==='running'){clearInterval(tick);remaining=(endAt-Date.now())/1000;state='paused';pauseBtn.textContent='Resume';msg.textContent='paused';unlock()}
+  else if(state==='paused'){endAt=Date.now()+remaining*1000;state='running';pauseBtn.textContent='Pause';msg.textContent='sitting';lock();tick=setInterval(loop,250)}
+}
+go.onclick=function(){state==='idle'?begin():stop()};
+pauseBtn.onclick=pause;
+document.getElementById('test').onclick=gong;
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='visible'){if(state==='running')loop();if(state!=='idle'&&!wake&&state==='running')lock()}});
+showIdle();
+</script>
+</body>
+</html>
